@@ -6,6 +6,15 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <script src="https://cdn.jsdelivr.net/npm/systemjs@6.14.2/dist/system.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/systemjs@6.14.2/dist/extras/amd.min.js"></script>
+  <script type="systemjs-importmap">
+    {
+      "imports": {
+        "@org/stats-widget": "http://localhost:5202/stats-widget-parcel.js"
+      }
+    }
+  </script>
 </head>
 <body>
   <app-root></app-root>

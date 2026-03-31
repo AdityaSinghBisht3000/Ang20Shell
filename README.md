@@ -1,260 +1,366 @@
-# Angular 20 Single-SPA Shell Application
+# Mounting a Single-SPA Parcel in an Angular 20 Shell
 
-An Angular 20 (NgModule-based) shell application that uses **single-spa** to load the **FND Unified Workflow UI** as a microfrontend. The shell runs on port 4002 and loads the FND app (running on port 4200) when the user navigates to `/oneui/ew`.
+This guide documents how this Angular 20 shell application mounts a **single-spa parcel** served by a separate Angular 17 app (the parcel provider). The parcel provider exposes a component as a UMD bundle, and this shell loads and renders it on a button click via routing.
 
 ---
 
-## Quick Start
+## Architecture Overview
 
-```bash
-# 1. Start the FND microfrontend (must be running first)
-cd FND_Unified_Workflow_UI
-npm start
-# → runs on http://localhost:4200
-
-# 2. Start the shell
-cd ShellAng20/my-angular-app
-npm start
-# → runs on http://localhost:4002
-
-# 3. Open http://localhost:4002 in your browser
-# Click "FND" in the nav bar (or go to /oneui/ew) to load the microfrontend
+```
+┌─────────────────────────────────────┐
+│  Angular 20 Shell (port 4002)       │
+│                                     │
+│  ┌───────────────────────────────┐  │
+│  │ Nav: Home | Stats Widget | …  │  │
+│  ├───────────────────────────────┤  │
+│  │ <router-outlet>               │  │
+│  │                               │  │
+│  │  ┌─────────────────────────┐  │  │
+│  │  │ ParcelWidgetComponent   │  │  │
+│  │  │                         │  │  │
+│  │  │  SystemJS.import()      │  │  │
+│  │  │  mountRootParcel()      │  │  │
+│  │  │       ↓                 │  │  │
+│  │  │  ┌───────────────────┐  │  │  │
+│  │  │  │ Ang17 StatsWidget │  │  │  │
+│  │  │  │ (parcel bundle)   │  │  │  │
+│  │  │  └───────────────────┘  │  │  │
+│  │  └─────────────────────────┘  │  │
+│  └───────────────────────────────┘  │
+└─────────────────────────────────────┘
+         ↑ loads JS bundle from
+┌─────────────────────────────────────┐
+│  Angular 17 Parcel Provider         │
+│  (port 5202)                        │
+│  serves: stats-widget-parcel.js     │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## Project Structure
+## Prerequisites
 
-```
-src/
-├── main.ts                          # Bootstraps Angular + registers FND microfrontend with single-spa
-├── index.html                       # SystemJS loader + import map pointing to FND bundle
-├── styles.css                       # Global styles
-├── app/
-│   ├── app-module.ts                # Root NgModule
-│   ├── app-routing-module.ts        # Shell routes + catch-all for microfrontend routes
-│   ├── app.ts                       # Root component
-│   ├── app.html                     # Nav bar + router-outlet + single-spa mount point
-│   ├── app.css                      # Nav styles
-│   ├── empty-route/
-│   │   └── empty-route.ts           # Blank component for microfrontend route catch-all
-│   └── pages/
-│       ├── home/                    # Home page (lazy-loaded)
-│       ├── about/                   # About page (lazy-loaded)
-│       └── contact/                 # Contact page (lazy-loaded)
-```
+- The parcel provider app must expose a UMD bundle with `bootstrap`, `mount`, and `unmount` lifecycle functions (see the `Ang17/PARCEL2_GUIDE.md` for how to set that up).
+- The parcel provider must serve with CORS headers (`Access-Control-Allow-Origin: *`).
+- The parcel provider must use `outputHashing: "none"` so bundle filenames are predictable.
 
 ---
 
-## How It Works
+## Step-by-Step Implementation
 
-The shell is a normal Angular app that also initializes single-spa to manage microfrontends. Angular owns the layout (nav bar, shared UI) and its own routes. Single-spa handles loading/unloading the FND microfrontend based on URL.
-
-### The 5 key pieces:
-
-1. **`main.ts`** — Bootstraps Angular, then registers the FND app with single-spa
-2. **`index.html`** — Loads SystemJS and defines the import map (where to fetch FND's bundle)
-3. **`app.html`** — Contains a `<div id="single-spa-application:@org/fnd">` where FND mounts
-4. **`app-routing-module.ts`** — Has a `**` catch-all route so Angular doesn't error on `/oneui/ew`
-5. **`empty-route.ts`** — The blank component used by the catch-all route
-
----
-
-## Setup Guide (Step by Step)
-
-If you're setting this up from scratch in a new Angular 20 project, here's exactly what to do.
-
-### Step 1: Install single-spa
+### Step 1: Install `single-spa` in the Shell
 
 ```bash
 npm install single-spa
 ```
 
-This is the only required dependency for the shell. (`single-spa-angular` and `@angular-builders/custom-webpack` are only needed if this app were being loaded AS a microfrontend by another shell — not needed here.)
+This gives you `mountRootParcel()` — the function that takes a parcel's lifecycle object and mounts it into a DOM element.
 
-### Step 2: Configure `src/index.html`
+---
 
-Add SystemJS and the import map before the closing `</head>` tag:
+### Step 2: Add SystemJS to `index.html`
+
+SystemJS is needed to load the parcel's UMD bundle at runtime. Add these scripts and an import map to `src/index.html`:
 
 ```html
-<!-- SystemJS Import Map for Microfrontends -->
-<script type="systemjs-importmap">
-  {
-    "imports": {
-      "single-spa": "https://cdn.jsdelivr.net/npm/single-spa@6.0.3/lib/es2015/system/single-spa.min.js",
-      "@org/fnd": "http://localhost:4200/main.js"
-    }
-  }
-</script>
+<head>
+  <!-- ... existing tags ... -->
 
-<!-- SystemJS Module Loader -->
-<script src="https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/system.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/extras/amd.min.js"></script>
+  <!-- SystemJS loader -->
+  <script src="https://cdn.jsdelivr.net/npm/systemjs@6.14.2/dist/system.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/systemjs@6.14.2/dist/extras/amd.min.js"></script>
+
+  <!-- Import map: maps a logical name to the parcel bundle URL -->
+  <script type="systemjs-importmap">
+    {
+      "imports": {
+        "@org/stats-widget": "http://localhost:5202/stats-widget-parcel.js"
+      }
+    }
+  </script>
+</head>
 ```
 
-- **`@org/fnd`** points to the FND app's UMD bundle at `http://localhost:4200/main.js`
-- **`system.min.js`** is the SystemJS runtime that loads UMD modules at runtime
-- **`extras/amd.min.js`** adds AMD support (Angular microfrontend bundles use UMD which includes AMD)
+**Key points:**
+- `system.min.js` — the SystemJS module loader
+- `extras/amd.min.js` — required because the parcel bundle is in UMD/AMD format
+- The import map key (`@org/stats-widget`) is the name you'll use in `System.import()`
+- The URL points to the parcel bundle served by the provider app
 
-### Step 3: Configure `src/main.ts`
+---
+
+### Step 3: Create the Parcel Wrapper Component
+
+Create `src/app/pages/parcel-widget/parcel-widget.ts`:
 
 ```typescript
-import { platformBrowser } from '@angular/platform-browser';
-import { AppModule } from './app/app-module';
-import { registerApplication, start } from 'single-spa';
+import {
+  Component,
+  AfterViewInit,
+  OnDestroy,
+  NgZone,
+  ViewEncapsulation,
+  ElementRef,
+  ViewChild,
+} from '@angular/core';
+import { mountRootParcel } from 'single-spa';
 
 declare const System: any;
 
-// Bootstrap the Angular shell
-platformBrowser().bootstrapModule(AppModule, {
-  ngZoneEventCoalescing: true,
-}).catch(err => console.error(err));
-
-// Register FND microfrontend
-registerApplication({
-  name: '@org/fnd',
-  app: () => System.import('@org/fnd'),
-  activeWhen: ['/oneui/ew'],
-});
-
-// Start single-spa
-start({ urlRerouteOnly: true });
-```
-
-- **`registerApplication`**: The `name` must match the import map key. `activeWhen: ['/oneui/ew']` means FND loads on any URL starting with `/oneui/ew`.
-- **`declare const System: any`**: TypeScript declaration for the SystemJS global loaded in index.html.
-- **`urlRerouteOnly: true`**: Single-spa only triggers app changes on actual URL changes.
-
-### Step 4: Create `src/app/empty-route/empty-route.ts`
-
-```typescript
-import { Component } from '@angular/core';
+const PARCEL_STYLE_URLS = [
+  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css',
+  'https://cdn.jsdelivr.net/npm/primeicons@7.0.0/primeicons.css',
+  'https://cdn.jsdelivr.net/npm/primeng@17.18.15/resources/themes/lara-light-blue/theme.css',
+  'https://cdn.jsdelivr.net/npm/primeng@17.18.15/resources/primeng.min.css',
+];
 
 @Component({
-  selector: 'app-empty-route',
+  selector: 'app-parcel-widget',
   standalone: false,
-  template: '',
+  encapsulation: ViewEncapsulation.None,
+  template: `
+    <h2>Stats Widget (Parcel from Ang17)</h2>
+    <div #parcelContainer></div>
+    @if (error) {
+      <p style="color:red">{{ error }}</p>
+    }
+  `,
+  styles: [`:host { display: block; padding: 1rem; }`],
 })
-export class EmptyRouteComponent {}
+export class ParcelWidgetComponent implements AfterViewInit, OnDestroy {
+  @ViewChild('parcelContainer', { static: true })
+  container!: ElementRef<HTMLDivElement>;
+  error = '';
+  private parcel: any;
+  private styleLinks: HTMLLinkElement[] = [];
+
+  constructor(private ngZone: NgZone) {}
+
+  async ngAfterViewInit() {
+    this.loadParcelStyles();
+
+    this.ngZone.runOutsideAngular(async () => {
+      try {
+        const app = await System.import('@org/stats-widget');
+        this.parcel = mountRootParcel(app, {
+          domElement: this.container.nativeElement,
+        });
+      } catch (err: any) {
+        this.ngZone.run(() => {
+          this.error =
+            'Failed to load parcel. Is the provider running on port 5202?';
+          console.error('Parcel mount error:', err);
+        });
+      }
+    });
+  }
+
+  ngOnDestroy() {
+    if (this.parcel) {
+      this.parcel.unmount();
+    }
+    this.removeParcelStyles();
+  }
+
+  private loadParcelStyles(): void {
+    for (const url of PARCEL_STYLE_URLS) {
+      if (document.querySelector(`link[href="${url}"]`)) {
+        continue;
+      }
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      document.head.appendChild(link);
+      this.styleLinks.push(link);
+    }
+  }
+
+  private removeParcelStyles(): void {
+    for (const link of this.styleLinks) {
+      link.parentNode?.removeChild(link);
+    }
+    this.styleLinks = [];
+  }
+}
 ```
 
-This blank component prevents Angular from throwing "route not found" errors on URLs owned by microfrontends.
+**What this does:**
+1. `ngAfterViewInit` — loads the parcel bundle via SystemJS and mounts it into the `#parcelContainer` div
+2. `ngOnDestroy` — unmounts the parcel and removes injected stylesheets
+3. `runOutsideAngular` — prevents the parcel's zone from triggering change detection in the shell
+4. `ViewEncapsulation.None` — allows the parcel's styles to apply without Angular's style scoping
 
-### Step 5: Add the catch-all route in `app-routing-module.ts`
+---
+
+### Step 4: Create the Wrapper Module
+
+Create `src/app/pages/parcel-widget/parcel-widget.module.ts`:
 
 ```typescript
-const routes: Routes = [
-  { path: '', loadChildren: () => import('./pages/home/home.module').then(m => m.HomeModule) },
-  { path: 'about', loadChildren: () => import('./pages/about/about.module').then(m => m.AboutModule) },
-  { path: 'contact', loadChildren: () => import('./pages/contact/contact.module').then(m => m.ContactModule) },
-  // Catch-all for microfrontend routes — MUST BE LAST
-  { path: '**', component: EmptyRouteComponent },
-];
+import { NgModule } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterModule } from '@angular/router';
+import { ParcelWidgetComponent } from './parcel-widget';
+
+@NgModule({
+  declarations: [ParcelWidgetComponent],
+  imports: [
+    CommonModule,
+    RouterModule.forChild([{ path: '', component: ParcelWidgetComponent }]),
+  ],
+})
+export class ParcelWidgetModule {}
 ```
 
-Don't forget to add `EmptyRouteComponent` to your module's `declarations` array.
+---
 
-### Step 6: Add the mount point in `app.html`
+### Step 5: Add the Route
+
+In `src/app/app-routing-module.ts`, add a lazy-loaded route:
+
+```typescript
+{
+  path: 'parcel-widget',
+  loadChildren: () =>
+    import('./pages/parcel-widget/parcel-widget.module')
+      .then(m => m.ParcelWidgetModule),
+}
+```
+
+---
+
+### Step 6: Add the Navigation Link
+
+In `src/app/app.html`, add a link next to the existing nav items:
 
 ```html
 <nav>
-  <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+  <a routerLink="/" routerLinkActive="active"
+     [routerLinkActiveOptions]="{ exact: true }">Home</a>
+  <a routerLink="/parcel-widget" routerLinkActive="active">Stats Widget</a>
   <a routerLink="/about" routerLinkActive="active">About</a>
   <a routerLink="/contact" routerLinkActive="active">Contact</a>
-  <a routerLink="/oneui/ew" routerLinkActive="active">FND</a>
 </nav>
 <router-outlet />
-<div id="single-spa-application:@org/fnd"></div>
 ```
 
-- The `<div id="single-spa-application:@org/fnd">` is where single-spa mounts the FND app's DOM. The ID format `single-spa-application:<app-name>` is a single-spa convention.
-- The `routerLink="/oneui/ew"` nav link triggers the route that activates the FND microfrontend.
+---
+
+## Running It
+
+```bash
+# Terminal 1 — Start the parcel provider (Ang17)
+cd Ang17
+npm run serve:parcel    # serves on port 5202
+
+# Terminal 2 — Start the shell (ShellAng20)
+cd ShellAng20/my-angular-app
+npm start               # serves on port 4002
+```
+
+Open `http://localhost:4002` and click "Stats Widget" in the nav.
 
 ---
 
-## FND Microfrontend Requirements
+## The CSS Problem and How to Solve It
 
-The FND app (running on port 4200) must be configured as a single-spa microfrontend:
+This is the most common issue when mounting parcels. Here's what happens and why.
 
-- Built with `@angular-builders/custom-webpack` to output a UMD bundle
-- Exports single-spa lifecycle functions (`bootstrap`, `mount`, `unmount`)
-- Uses `single-spa-angular` to wrap the Angular app
-- Serves `main.js` as the entry bundle at `http://localhost:4200/main.js`
-- Its routes should be prefixed with `/oneui/ew` to match the shell's `activeWhen` config
+### The Problem
+
+In dev mode, Angular's webpack config uses `style-loader` to bundle **all global CSS** (Bootstrap, PrimeNG, icon fonts, your `styles.scss`) inside `main.js`. At runtime, `main.js` injects them as `<style>` tags into the DOM.
+
+When the shell loads only `stats-widget-parcel.js`, it gets just the component code with its inline styles. The global CSS that makes Bootstrap grid, PrimeNG buttons/tags, and icon fonts work **never gets loaded** — because it's all trapped inside `main.js`, which the shell never imports.
+
+Hitting `http://localhost:5202/styles.css` returns **404** in dev mode. There is no separate CSS file.
+
+### The Solution
+
+Load the same CSS libraries the parcel depends on. You have three options:
+
+#### Option A: CDN (what this project uses — best for dev)
+
+Dynamically inject `<link>` tags pointing to CDN-hosted versions of the same libraries. Match the exact versions from the parcel provider's `node_modules`.
+
+```typescript
+const PARCEL_STYLE_URLS = [
+  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css',
+  'https://cdn.jsdelivr.net/npm/primeicons@7.0.0/primeicons.css',
+  'https://cdn.jsdelivr.net/npm/primeng@17.18.15/resources/themes/lara-light-blue/theme.css',
+  'https://cdn.jsdelivr.net/npm/primeng@17.18.15/resources/primeng.min.css',
+];
+```
+
+Pros: Works immediately, no build changes needed on the provider side.
+Cons: Requires internet access, version must be kept in sync manually.
+
+#### Option B: Production build (best for prod)
+
+In production builds (`ng build`), Angular extracts CSS into a real `styles.css` file by default. With `outputHashing: "none"`, the file is at a predictable URL:
+
+```
+http://your-cdn.com/ang17-parcel-poc/styles.css
+```
+
+Load that single file instead of multiple CDN links.
+
+#### Option C: Install the same packages in the shell
+
+If the shell also uses Bootstrap/PrimeNG, just add them to the shell's `angular.json` styles array. The parcel will inherit them automatically. This is the cleanest approach when both apps share the same design system.
+
+### Cleanup on Unmount
+
+Always remove injected stylesheets when the parcel is destroyed to prevent style bleed:
+
+```typescript
+ngOnDestroy() {
+  this.parcel?.unmount();
+  for (const link of this.styleLinks) {
+    link.parentNode?.removeChild(link);
+  }
+}
+```
 
 ---
 
-## Adding Another Microfrontend
+## Adding More Parcels
 
-1. Add its URL to the import map in `index.html`:
-   ```json
-   "@myorg/new-mfe": "http://localhost:4201/main.js"
-   ```
+To mount additional parcels from the same or different provider apps:
 
-2. Register it in `main.ts`:
-   ```typescript
-   registerApplication({
-     name: '@myorg/new-mfe',
-     app: () => System.import('@myorg/new-mfe'),
-     activeWhen: ['/new-mfe-route'],
-   });
-   ```
-
-3. Add a mount point in `app.html`:
+1. Add a new entry in the SystemJS import map in `index.html`:
    ```html
-   <div id="single-spa-application:@myorg/new-mfe"></div>
+   "@org/another-widget": "http://localhost:5203/another-widget-parcel.js"
    ```
 
-4. Optionally add a nav link:
-   ```html
-   <a routerLink="/new-mfe-route">New MFE</a>
-   ```
+2. Create a new wrapper component following the same pattern as `ParcelWidgetComponent` — update the `System.import()` name and the `PARCEL_STYLE_URLS` to match the new parcel's dependencies.
+
+3. Add a route and nav link.
+
+Each parcel is independent — it creates its own Angular zone and module instance, so they don't interfere with each other or the shell.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Cause | Fix |
-|---|---|---|
-| FND doesn't load on `/oneui/ew` | FND app not running | Start FND on port 4200 first |
-| Console error: `System.import is not a function` | SystemJS not loaded | Check that `system.min.js` script tag is in `index.html` |
-| Angular "route not found" error | Missing catch-all route | Ensure `{ path: '**', component: EmptyRouteComponent }` is the last route |
-| FND loads but styles are missing | CSS not bundled in FND's UMD output | Check FND's webpack config includes styles in the bundle |
-| CORS errors loading `main.js` | FND dev server blocks cross-origin | Add `--disable-host-check` to FND's serve command or configure CORS headers |
-| FND mounts but shows blank | Wrong mount point ID | Ensure `<div id="single-spa-application:@org/fnd">` exists in `app.html` |
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "Failed to load parcel" error | Provider app not running | Start it with `npm run serve:parcel` |
+| CORS error in console | Missing CORS headers on provider | Add `"Access-Control-Allow-Origin": "*"` in provider's `angular.json` serve headers |
+| Component renders but looks unstyled | Global CSS not loaded (see above) | Load CSS via CDN, production `styles.css`, or install packages in shell |
+| `System is not defined` | SystemJS not loaded | Check that `system.min.js` script tag is in `index.html` |
+| `AMD module not found` | Missing AMD extra | Add `extras/amd.min.js` script tag after `system.min.js` |
+| Bundle filename has hash (`main.abc123.js`) | `outputHashing` not disabled | Set `"outputHashing": "none"` in ALL build configs of the provider |
+| Icons missing but layout works | PrimeIcons CSS not loaded | Add the PrimeIcons CDN link to `PARCEL_STYLE_URLS` |
 
 ---
 
-## Architecture
+## Files Modified/Created in This Shell
 
-```
-┌──────────────────────────────────────────────────┐
-│  Browser — http://localhost:4002                 │
-│                                                   │
-│  ┌─────────────────────────────────────────────┐  │
-│  │  Angular 20 Shell                           │  │
-│  │  ├── Nav: Home | About | Contact | FND      │  │
-│  │  ├── Angular Router (own pages)             │  │
-│  │  └── single-spa (microfrontend orchestrator)│  │
-│  └─────────────────────────────────────────────┘  │
-│                        │                          │
-│            ┌───────────┴───────────┐              │
-│            ▼                       ▼              │
-│  ┌──────────────────┐   ┌──────────────────┐     │
-│  │  Shell Routes     │   │  Microfrontends  │     │
-│  │  /     → Home     │   │  /oneui/ew →     │     │
-│  │  /about → About   │   │    @org/fnd      │     │
-│  │  /contact         │   │    (port 4200)   │     │
-│  │  /** → EmptyRoute │   │                  │     │
-│  └──────────────────┘   └──────────────────┘     │
-└──────────────────────────────────────────────────┘
-```
-
----
-
-## Ports
-
-| App | Port | Role |
-|---|---|---|
-| ShellAng20 (this app) | 4002 | Shell / root config |
-| FND Unified Workflow UI | 4200 | Microfrontend |
+| File | Change |
+|------|--------|
+| `package.json` | Added `single-spa` dependency |
+| `src/index.html` | Added SystemJS scripts and import map |
+| `src/app/app.html` | Added "Stats Widget" nav link |
+| `src/app/app-routing-module.ts` | Added `parcel-widget` lazy route |
+| `src/app/pages/parcel-widget/parcel-widget.ts` | **Created** — wrapper component |
+| `src/app/pages/parcel-widget/parcel-widget.module.ts` | **Created** — wrapper module |
