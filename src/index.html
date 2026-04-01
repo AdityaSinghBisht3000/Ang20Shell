@@ -2,24 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>MyAngularApp - Shell</title>
+  <title>MyAngularApp</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
-
-  <!-- SystemJS Import Map for Microfrontends -->
-  <script type="systemjs-importmap">
-    {
-      "imports": {
-        "single-spa": "https://cdn.jsdelivr.net/npm/single-spa@6.0.3/lib/es2015/system/single-spa.min.js",
-        "@org/fnd": "http://localhost:4200/main.js"
-      }
-    }
-  </script>
-
-  <!-- SystemJS Module Loader -->
-  <script src="https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/system.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/extras/amd.min.js"></script>
 </head>
 <body>
   <app-root></app-root>
