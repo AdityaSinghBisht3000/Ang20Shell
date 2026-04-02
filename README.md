@@ -1,133 +1,247 @@
-# Angular 20 Single-SPA Shell Application
+# Angular 20 → single-spa Microfrontend Conversion Guide
 
-An Angular 20 (NgModule-based) shell application that uses **single-spa** to load the **FND Unified Workflow UI** as a microfrontend. The shell runs on port 4002 and loads the FND app (running on port 4200) when the user navigates to `/oneui/ew`.
+A step-by-step guide for converting a standard Angular 20 (NgModule-based) application into a
+**single-spa microfrontend** that can:
+
+- Run **standalone** via `ng serve` (normal Angular app)
+- Be **mounted inside a shell** application via single-spa lifecycle hooks
 
 ---
 
-## Quick Start
+## Why This Guide Exists
+
+Angular 20 defaults to the ESBuild-based `@angular/build:application` builder, which **does not
+support** the custom webpack config that single-spa requires. The `ng add single-spa-angular`
+schematic automates most of the setup, but it needs a builder swap first. This guide covers the
+full process including all the manual fixes required after the schematic runs.
+
+---
+
+## Prerequisites
+
+- Angular CLI 20.x project (NgModule-based)
+- Node.js 18+
+- A shell application that uses single-spa to orchestrate microfrontends (for shell mode)
+
+---
+
+## Step-by-Step Conversion
+
+### Step 1 — Switch the Builder (MUST do before `ng add`)
+
+The `ng add single-spa-angular` schematic expects `@angular-devkit/build-angular:browser`.
+Angular 20 ships with `@angular/build:application` (ESBuild), so you must switch first.
+
+**Install the browser builder:**
 
 ```bash
-# 1. Start the FND microfrontend (must be running first)
-cd FND_Unified_Workflow_UI
-npm start
-# → runs on http://localhost:4200
-
-# 2. Start the shell
-cd ShellAng20/my-angular-app
-npm start
-# → runs on http://localhost:4002
-
-# 3. Open http://localhost:4002 in your browser
-# Click "FND" in the nav bar (or go to /oneui/ew) to load the microfrontend
+npm install @angular-devkit/build-angular@20
 ```
 
----
+**Update `angular.json`** — change all four architect targets:
 
-## Project Structure
+| Target | Before (Angular 20 default) | After |
+|---|---|---|
+| `build` | `@angular/build:application` | `@angular-devkit/build-angular:browser` |
+| `serve` | `@angular/build:dev-server` | `@angular-devkit/build-angular:dev-server` |
+| `extract-i18n` | `@angular/build:extract-i18n` | `@angular-devkit/build-angular:extract-i18n` |
+| `test` | `@angular/build:karma` | `@angular-devkit/build-angular:karma` |
 
-```
-src/
-├── main.ts                          # Bootstraps Angular + registers FND microfrontend with single-spa
-├── index.html                       # SystemJS loader + import map pointing to FND bundle
-├── styles.css                       # Global styles
-├── app/
-│   ├── app-module.ts                # Root NgModule
-│   ├── app-routing-module.ts        # Shell routes + catch-all for microfrontend routes
-│   ├── app.ts                       # Root component
-│   ├── app.html                     # Nav bar + router-outlet + single-spa mount point
-│   ├── app.css                      # Nav styles
-│   ├── empty-route/
-│   │   └── empty-route.ts           # Blank component for microfrontend route catch-all
-│   └── pages/
-│       ├── home/                    # Home page (lazy-loaded)
-│       ├── about/                   # About page (lazy-loaded)
-│       └── contact/                 # Contact page (lazy-loaded)
-```
+The `browser` builder also requires different option keys. Change the `build` options:
 
----
-
-## How It Works
-
-The shell is a normal Angular app that also initializes single-spa to manage microfrontends. Angular owns the layout (nav bar, shared UI) and its own routes. Single-spa handles loading/unloading the FND microfrontend based on URL.
-
-### The 5 key pieces:
-
-1. **`main.ts`** — Bootstraps Angular, then registers the FND app with single-spa
-2. **`index.html`** — Loads SystemJS and defines the import map (where to fetch FND's bundle)
-3. **`app.html`** — Contains a `<div id="single-spa-application:@org/fnd">` where FND mounts
-4. **`app-routing-module.ts`** — Has a `**` catch-all route so Angular doesn't error on `/oneui/ew`
-5. **`empty-route.ts`** — The blank component used by the catch-all route
-
----
-
-## Setup Guide (Step by Step)
-
-If you're setting this up from scratch in a new Angular 20 project, here's exactly what to do.
-
-### Step 1: Install single-spa
-
-```bash
-npm install single-spa
-```
-
-This is the only required dependency for the shell. (`single-spa-angular` and `@angular-builders/custom-webpack` are only needed if this app were being loaded AS a microfrontend by another shell — not needed here.)
-
-### Step 2: Configure `src/index.html`
-
-Add SystemJS and the import map before the closing `</head>` tag:
-
-```html
-<!-- SystemJS Import Map for Microfrontends -->
-<script type="systemjs-importmap">
-  {
-    "imports": {
-      "single-spa": "https://cdn.jsdelivr.net/npm/single-spa@6.0.3/lib/es2015/system/single-spa.min.js",
-      "@org/fnd": "http://localhost:4200/main.js"
-    }
+**Before:**
+```json
+"build": {
+  "builder": "@angular/build:application",
+  "options": {
+    "browser": "src/main.ts"
   }
-</script>
-
-<!-- SystemJS Module Loader -->
-<script src="https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/system.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/extras/amd.min.js"></script>
+}
 ```
 
-- **`@org/fnd`** points to the FND app's UMD bundle at `http://localhost:4200/main.js`
-- **`system.min.js`** is the SystemJS runtime that loads UMD modules at runtime
-- **`extras/amd.min.js`** adds AMD support (Angular microfrontend bundles use UMD which includes AMD)
+**After:**
+```json
+"build": {
+  "builder": "@angular-devkit/build-angular:browser",
+  "options": {
+    "outputPath": "dist/my-angular-app",
+    "index": "src/index.html",
+    "main": "src/main.ts"
+  }
+}
+```
 
-### Step 3: Configure `src/main.ts`
+> The `browser` builder requires `outputPath`, `index`, and `main` (not `browser`) properties.
+
+**Verify the build still works before proceeding:**
+
+```bash
+npx ng build
+```
+
+---
+
+### Step 2 — Run `ng add single-spa-angular`
+
+```bash
+ng add single-spa-angular --project my-angular-app
+```
+
+When prompted:
+- **Does your application use Angular routing?** → Yes
+- **What port should your project run on?** → 4002 (or your preferred port)
+
+The schematic automatically:
+- Installs `single-spa`, `single-spa-angular`, `style-loader`, and `@angular-builders/custom-webpack`
+- Generates `src/main.single-spa.ts` (single-spa entry point with lifecycle hooks)
+- Generates `src/single-spa/single-spa-props.ts` (custom props helper)
+- Generates `src/single-spa/asset-url.ts` (asset URL resolver)
+- Generates `src/app/empty-route/empty-route.component.ts` (catch-all route component)
+- Creates `extra-webpack.config.js` in the project root
+- Adds `build:single-spa` and `serve:single-spa` npm scripts
+- Updates `angular.json` with custom-webpack builder and `deployUrl`
+
+> **If `@angular-builders/custom-webpack` fails with a peer dependency error or builder not found:**
+> ```bash
+> npm install @angular-builders/custom-webpack@20
+> ```
+> Pin it to version 20 to match your Angular version.
+
+---
+
+### Step 3 — Fix `deployUrl` in `angular.json`
+
+When the shell loads your microfrontend, webpack tries to fetch lazy-loaded chunks from the
+shell's origin instead of the microfrontend's dev server. The schematic may already set this,
+but verify it's correct in the `build` target options:
+
+```json
+"build": {
+  "builder": "@angular-builders/custom-webpack:browser",
+  "options": {
+    "deployUrl": "http://localhost:4002/"
+  }
+}
+```
+
+> For production, change this to your deployed microfrontend URL
+> (e.g., `https://cdn.example.com/my-angular-app/`).
+>
+> `--deploy-url` does **NOT** work as a CLI flag with `ng run`. It must be set in `angular.json`.
+
+---
+
+### Step 4 — Fix zone.js (for standalone mode)
+
+single-spa-angular's webpack helper externalizes `zone.js` (expects the shell to provide it).
+If you want the app to also run standalone, you need zone.js in the bundle. Two changes:
+
+**a) Add `import 'zone.js'` at the very top of `src/main.single-spa.ts`:**
 
 ```typescript
-import { platformBrowser } from '@angular/platform-browser';
+import 'zone.js';  // ← ADD THIS AS THE FIRST LINE
+import { enableProdMode, NgZone } from '@angular/core';
+// ... rest of the file
+```
+
+**b) Remove zone.js from webpack externals in `extra-webpack.config.js`:**
+
+Replace the generated file with:
+
+```js
+const singleSpaAngularWebpack = require('single-spa-angular/lib/webpack').default;
+
+module.exports = (config, options) => {
+  const singleSpaWebpackConfig = singleSpaAngularWebpack(config, options);
+
+  // Keep zone.js in the bundle for standalone mode.
+  // When the shell already has zone.js loaded, the import is a harmless no-op.
+  if (Array.isArray(singleSpaWebpackConfig.externals)) {
+    singleSpaWebpackConfig.externals = singleSpaWebpackConfig.externals.filter((ext) => {
+      if (ext instanceof RegExp) return !ext.test('zone.js');
+      if (typeof ext === 'string') return ext !== 'zone.js';
+      return true;
+    });
+  }
+
+  return singleSpaWebpackConfig;
+};
+```
+
+---
+
+### Step 5 — Fix `main.single-spa.ts` imports and add standalone bootstrap
+
+The schematic generates `main.single-spa.ts` with references that may not match your project.
+Fix the imports and add standalone bootstrap support.
+
+**Issues to fix:**
+- The schematic imports from `./app/app.module` — your file may be named differently
+  (e.g., `./app/app-module`)
+- The schematic imports `./environments/environment` — this file may not exist in your project
+- No standalone bootstrap is included — the app won't work outside a shell
+
+**Final working `src/main.single-spa.ts`:**
+
+```typescript
+import 'zone.js';
+import { enableProdMode, NgZone } from '@angular/core';
+import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
+import { Router, NavigationStart } from '@angular/router';
+import { singleSpaAngular, getSingleSpaExtraProviders } from 'single-spa-angular';
+
 import { AppModule } from './app/app-module';
-import { registerApplication, start } from 'single-spa';
+import { singleSpaPropsSubject } from './single-spa/single-spa-props';
 
-declare const System: any;
-
-// Bootstrap the Angular shell
-platformBrowser().bootstrapModule(AppModule, {
-  ngZoneEventCoalescing: true,
-}).catch(err => console.error(err));
-
-// Register FND microfrontend
-registerApplication({
-  name: '@org/fnd',
-  app: () => System.import('@org/fnd'),
-  activeWhen: ['/oneui/ew'],
+const lifecycles = singleSpaAngular({
+  bootstrapFunction: singleSpaProps => {
+    singleSpaPropsSubject.next(singleSpaProps);
+    return platformBrowserDynamic(getSingleSpaExtraProviders()).bootstrapModule(AppModule);
+  },
+  template: '<app-root />',
+  Router,
+  NavigationStart,
+  NgZone,
 });
 
-// Start single-spa
-start({ urlRerouteOnly: true });
+export const bootstrap = lifecycles.bootstrap;
+export const mount = lifecycles.mount;
+export const unmount = lifecycles.unmount;
+
+// When running standalone (not loaded by a shell), bootstrap immediately.
+// window.singleSpaNavigate exists only when single-spa is controlling the page.
+if (!(window as any).singleSpaNavigate) {
+  platformBrowserDynamic().bootstrapModule(AppModule, { ngZoneEventCoalescing: true })
+    .catch(err => console.error(err));
+}
 ```
 
-- **`registerApplication`**: The `name` must match the import map key. `activeWhen: ['/oneui/ew']` means FND loads on any URL starting with `/oneui/ew`.
-- **`declare const System: any`**: TypeScript declaration for the SystemJS global loaded in index.html.
-- **`urlRerouteOnly: true`**: Single-spa only triggers app changes on actual URL changes.
+> Adjust the `AppModule` import path to match your project's file naming convention.
 
-### Step 4: Create `src/app/empty-route/empty-route.ts`
+---
+
+### Step 6 — Delete the old `src/main.ts`
+
+Since `main.single-spa.ts` now handles both standalone and shell modes, delete the original
+entry point:
+
+```bash
+rm src/main.ts
+```
+
+The `angular.json` build target already points to `src/main.single-spa.ts` (set by the schematic).
+
+---
+
+### Step 7 — Wire up `EmptyRouteComponent`
+
+The schematic generates `src/app/empty-route/empty-route.component.ts` as a standalone component.
+Since this is an NgModule-based app, you need to:
+
+**a) Set `standalone: false` on the component:**
 
 ```typescript
+// src/app/empty-route/empty-route.component.ts
 import { Component } from '@angular/core';
 
 @Component({
@@ -138,123 +252,221 @@ import { Component } from '@angular/core';
 export class EmptyRouteComponent {}
 ```
 
-This blank component prevents Angular from throwing "route not found" errors on URLs owned by microfrontends.
-
-### Step 5: Add the catch-all route in `app-routing-module.ts`
+**b) Declare it in `AppModule`:**
 
 ```typescript
+import { EmptyRouteComponent } from './empty-route/empty-route.component';
+
+@NgModule({
+  declarations: [App, EmptyRouteComponent],
+  // ...
+})
+export class AppModule {}
+```
+
+**c) Add the catch-all route (MUST be last) in your routing module:**
+
+```typescript
+import { EmptyRouteComponent } from './empty-route/empty-route.component';
+
 const routes: Routes = [
-  { path: '', loadChildren: () => import('./pages/home/home.module').then(m => m.HomeModule) },
-  { path: 'about', loadChildren: () => import('./pages/about/about.module').then(m => m.AboutModule) },
-  { path: 'contact', loadChildren: () => import('./pages/contact/contact.module').then(m => m.ContactModule) },
-  // Catch-all for microfrontend routes — MUST BE LAST
-  { path: '**', component: EmptyRouteComponent },
+  // ... your existing routes ...
+  { path: '**', component: EmptyRouteComponent },  // MUST BE LAST
 ];
 ```
 
-Don't forget to add `EmptyRouteComponent` to your module's `declarations` array.
+---
 
-### Step 6: Add the mount point in `app.html`
+### Step 8 — Set `APP_BASE_HREF` in `AppModule`
 
-```html
-<nav>
-  <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
-  <a routerLink="/about" routerLinkActive="active">About</a>
-  <a routerLink="/contact" routerLinkActive="active">Contact</a>
-  <a routerLink="/oneui/ew" routerLinkActive="active">FND</a>
-</nav>
-<router-outlet />
-<div id="single-spa-application:@org/fnd"></div>
+When the shell mounts your app at a sub-path (e.g., `/oneui/ang20`), Angular's router needs
+to know about it:
+
+```typescript
+import { APP_BASE_HREF } from '@angular/common';
+
+@NgModule({
+  declarations: [App, EmptyRouteComponent],
+  imports: [BrowserModule, AppRoutingModule],
+  providers: [
+    provideBrowserGlobalErrorListeners(),
+    { provide: APP_BASE_HREF, useValue: '/oneui/ang20/' },
+  ],
+  bootstrap: [App],
+})
+export class AppModule {}
 ```
 
-- The `<div id="single-spa-application:@org/fnd">` is where single-spa mounts the FND app's DOM. The ID format `single-spa-application:<app-name>` is a single-spa convention.
-- The `routerLink="/oneui/ew"` nav link triggers the route that activates the FND microfrontend.
+> Set the value to match the route path in your shell's layout.
 
 ---
 
-## FND Microfrontend Requirements
+### Step 9 — Clean up npm scripts
 
-The FND app (running on port 4200) must be configured as a single-spa microfrontend:
+The schematic generates verbose script names. Simplify them in `package.json`:
 
-- Built with `@angular-builders/custom-webpack` to output a UMD bundle
-- Exports single-spa lifecycle functions (`bootstrap`, `mount`, `unmount`)
-- Uses `single-spa-angular` to wrap the Angular app
-- Serves `main.js` as the entry bundle at `http://localhost:4200/main.js`
-- Its routes should be prefixed with `/oneui/ew` to match the shell's `activeWhen` config
-
----
-
-## Adding Another Microfrontend
-
-1. Add its URL to the import map in `index.html`:
-   ```json
-   "@myorg/new-mfe": "http://localhost:4201/main.js"
-   ```
-
-2. Register it in `main.ts`:
-   ```typescript
-   registerApplication({
-     name: '@myorg/new-mfe',
-     app: () => System.import('@myorg/new-mfe'),
-     activeWhen: ['/new-mfe-route'],
-   });
-   ```
-
-3. Add a mount point in `app.html`:
-   ```html
-   <div id="single-spa-application:@myorg/new-mfe"></div>
-   ```
-
-4. Optionally add a nav link:
-   ```html
-   <a routerLink="/new-mfe-route">New MFE</a>
-   ```
+```json
+"scripts": {
+  "ng": "ng",
+  "start": "ng serve --port 4002",
+  "build": "ng build",
+  "watch": "ng build --watch --configuration development",
+  "test": "ng test",
+  "build:single-spa": "ng build my-angular-app --configuration production",
+  "serve:single-spa": "ng s --project my-angular-app --disable-host-check --port 4002 --live-reload false"
+}
+```
 
 ---
 
-## Troubleshooting
+### Step 10 — Verify
 
-| Problem | Cause | Fix |
+```bash
+# Production build
+npx ng build --configuration production
+
+# Development build
+npx ng build --configuration development
+
+# Standalone mode (runs as normal Angular app)
+npm start
+
+# Microfrontend mode (serves UMD bundle for shell)
+npm run serve:single-spa
+```
+
+All four commands should succeed.
+
+---
+
+## Summary of Changes
+
+| What | Automated by `ng add` | Manual fix needed |
 |---|---|---|
-| FND doesn't load on `/oneui/ew` | FND app not running | Start FND on port 4200 first |
-| Console error: `System.import is not a function` | SystemJS not loaded | Check that `system.min.js` script tag is in `index.html` |
-| Angular "route not found" error | Missing catch-all route | Ensure `{ path: '**', component: EmptyRouteComponent }` is the last route |
-| FND loads but styles are missing | CSS not bundled in FND's UMD output | Check FND's webpack config includes styles in the bundle |
-| CORS errors loading `main.js` | FND dev server blocks cross-origin | Add `--disable-host-check` to FND's serve command or configure CORS headers |
-| FND mounts but shows blank | Wrong mount point ID | Ensure `<div id="single-spa-application:@org/fnd">` exists in `app.html` |
+| Install single-spa packages | ✅ | Pin `@angular-builders/custom-webpack@20` if builder not found |
+| Generate `main.single-spa.ts` | ✅ | Fix imports + add `import 'zone.js'` + add standalone bootstrap |
+| Generate `extra-webpack.config.js` | ✅ | Remove zone.js from externals |
+| Generate helper files (`single-spa/`) | ✅ | — |
+| Generate `EmptyRouteComponent` | ✅ | Set `standalone: false`, declare in module, add catch-all route |
+| Add build/serve scripts | ✅ | Simplify script names (optional) |
+| Add `deployUrl` | ✅ | Verify port is correct |
+| Switch builder to `browser` | ❌ | **Must do BEFORE running `ng add`** |
+| Delete old `src/main.ts` | ❌ | Delete manually |
+| Set `APP_BASE_HREF` | ❌ | Set to match shell's mount path |
 
 ---
 
-## Architecture
+## Running the App
 
-```
-┌──────────────────────────────────────────────────┐
-│  Browser — http://localhost:4002                 │
-│                                                   │
-│  ┌─────────────────────────────────────────────┐  │
-│  │  Angular 20 Shell                           │  │
-│  │  ├── Nav: Home | About | Contact | FND      │  │
-│  │  ├── Angular Router (own pages)             │  │
-│  │  └── single-spa (microfrontend orchestrator)│  │
-│  └─────────────────────────────────────────────┘  │
-│                        │                          │
-│            ┌───────────┴───────────┐              │
-│            ▼                       ▼              │
-│  ┌──────────────────┐   ┌──────────────────┐     │
-│  │  Shell Routes     │   │  Microfrontends  │     │
-│  │  /     → Home     │   │  /oneui/ew →     │     │
-│  │  /about → About   │   │    @org/fnd      │     │
-│  │  /contact         │   │    (port 4200)   │     │
-│  │  /** → EmptyRoute │   │                  │     │
-│  └──────────────────┘   └──────────────────┘     │
-└──────────────────────────────────────────────────┘
-```
-
----
-
-## Ports
-
-| App | Port | Role |
+| Command | Mode | Description |
 |---|---|---|
-| ShellAng20 (this app) | 4002 | Shell / root config |
-| FND Unified Workflow UI | 4200 | Microfrontend |
+| `npm start` | Standalone | Runs as a normal Angular app on port 4002 |
+| `npm run serve:single-spa` | Microfrontend dev | Serves the UMD bundle for a shell to load |
+| `npm run build:single-spa` | Microfrontend prod | Builds `dist/my-angular-app/main.js` for deployment |
+| `npm run build` | Standalone prod | Standard Angular production build |
+
+---
+
+## Registering in a Shell Application
+
+In your shell's import map, point to the microfrontend's `main.js`:
+
+```json
+{
+  "imports": {
+    "@org/ang20": "http://localhost:4002/main.js"
+  }
+}
+```
+
+Register in the shell's JavaScript:
+
+```javascript
+import { registerApplication, start } from 'single-spa';
+
+registerApplication({
+  name: '@org/ang20',
+  app: () => System.import('@org/ang20'),
+  activeWhen: ['/oneui/ang20'],
+});
+
+start({ urlRerouteOnly: true });
+```
+
+---
+
+## Common Pitfalls and Fixes
+
+### `NG0908: Angular requires Zone.js`
+
+**Cause:** single-spa-angular's webpack helper externalizes `zone.js`, expecting the shell to
+provide it.
+
+**Fix:** Add `import 'zone.js'` at the top of `main.single-spa.ts` + remove zone.js from
+externals in `extra-webpack.config.js` (Steps 4a and 4b).
+
+### `ChunkLoadError: Loading chunk XXX failed`
+
+**Cause:** Webpack fetches lazy chunks from the shell's origin instead of the microfrontend's
+dev server.
+
+**Fix:** Set `"deployUrl": "http://localhost:4002/"` in the build options in `angular.json`
+(Step 3).
+
+### Builder Not Found: `@angular-builders/custom-webpack:browser`
+
+**Cause:** The schematic installed `@angular-builders/custom-webpack@latest` which may target
+a newer Angular version.
+
+**Fix:** `npm install @angular-builders/custom-webpack@20`
+
+### `--deploy-url` as CLI Flag Doesn't Work
+
+**Cause:** `ng run` doesn't accept `--deploy-url` as a command-line argument.
+
+**Fix:** Set `"deployUrl"` inside `angular.json` options instead.
+
+### Schematic References Wrong Module Path
+
+**Cause:** The schematic generates `import { AppModule } from './app/app.module'` but your
+file may be named `app-module.ts` (or similar).
+
+**Fix:** Update the import path in `main.single-spa.ts` to match your actual file name.
+
+### Schematic References Missing `environments/environment`
+
+**Cause:** The schematic generates `import { environment } from './environments/environment'`
+and an `if (environment.production) { enableProdMode(); }` block. Angular 20 projects may not
+have this file.
+
+**Fix:** Remove the import and the `enableProdMode()` block. Angular 20 handles production
+mode via build configuration.
+
+---
+
+## Final Project Structure
+
+```
+src/
+├── main.single-spa.ts          # Unified entry point (standalone + shell)
+├── index.html
+├── styles.css
+├── single-spa/
+│   ├── single-spa-props.ts     # Custom props from shell (generated by ng add)
+│   └── asset-url.ts            # Asset URL resolver (generated by ng add)
+├── app/
+│   ├── app-module.ts           # Root module — APP_BASE_HREF set here
+│   ├── app-routing-module.ts   # Routes + EmptyRouteComponent catch-all
+│   ├── app.ts                  # Root component
+│   ├── app.html
+│   ├── app.css
+│   ├── empty-route/
+│   │   └── empty-route.component.ts  # Generated by ng add, set standalone: false
+│   └── pages/
+│       ├── home/
+│       ├── about/
+│       └── contact/
+extra-webpack.config.js          # Custom webpack config (zone.js fix applied)
+angular.json                     # Builder: custom-webpack:browser, deployUrl set
+package.json                     # single-spa scripts added
+```
