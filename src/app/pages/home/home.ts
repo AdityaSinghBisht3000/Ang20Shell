@@ -6,7 +6,7 @@ import { Component } from '@angular/core';
   template: `
     <div class="page">
       <h1>Home</h1>
-      <p>Welcome to our Angular 20 module-based application.</p>
+      <p>Welcome to our Angular 20 application.</p>
       <p>Use the navigation above to explore different pages.</p>
     </div>
   `,

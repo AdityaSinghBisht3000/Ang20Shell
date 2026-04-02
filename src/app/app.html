@@ -1,13 +1,6 @@
-<!-- Shell UI — hidden when microfrontend is active -->
-<ng-container *ngIf="!isMfeActive">
-  <nav>
-    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
-    <a routerLink="/about" routerLinkActive="active">About</a>
-    <a routerLink="/contact" routerLinkActive="active">Contact</a>
-    <a routerLink="/oneui/ew" routerLinkActive="active">FND</a>
-  </nav>
-  <router-outlet />
-</ng-container>
-
-<!-- Microfrontend mount point — takes full page when active -->
-<div id="single-spa-application:@org/fnd" [style.display]="isMfeActive ? 'block' : 'none'"></div>
+<nav>
+  <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+  <a routerLink="/about" routerLinkActive="active">About</a>
+  <a routerLink="/contact" routerLinkActive="active">Contact</a>
+</nav>
+<router-outlet />

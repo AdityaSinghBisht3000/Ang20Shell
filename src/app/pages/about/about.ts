@@ -6,10 +6,10 @@ import { Component } from '@angular/core';
   template: `
     <div class="page">
       <h1>About</h1>
-      <p>This is a simple Angular 20 application using NgModules.</p>
+      <p>This is a simple Angular 20 standalone application.</p>
       <ul>
-        <li>Angular 20 with module-based architecture</li>
-        <li>Lazy-loaded feature modules</li>
+        <li>Angular 20 with standalone components</li>
+        <li>Lazy-loaded routes</li>
         <li>Router with navigation</li>
       </ul>
     </div>
